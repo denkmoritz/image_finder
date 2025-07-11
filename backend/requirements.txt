@@ -1,0 +1,6 @@
+pandas
+mapillary
+sqlalchemy
+fastapi
+psycopg
+matplotlib
