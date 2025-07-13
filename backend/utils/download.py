@@ -103,13 +103,11 @@ def retry_missing(df_all, out_folder):
         time.sleep(RETRY_WAIT)
 
 
-def main():
+def run_download_from_df(df):
     set_token()
+    df_all = df[df['source'] == 'Mapillary'].reset_index(drop=True)
 
-    df_all = pd.read_csv(INPUT_CSV).reset_index(drop=True)
-    df_all = df_all[df_all['source'] == 'Mapillary']
-    csv_name = Path(INPUT_CSV).stem
-    out_folder = f'./sample_output/{csv_name}_images'
+    out_folder = './berlin_images/'
     Path(out_folder).mkdir(parents=True, exist_ok=True)
 
     print(f"Total Mapillary images: {len(df_all)}")
@@ -119,7 +117,3 @@ def main():
     retry_missing(df_all, out_folder)
 
     print("Download process completed.")
-
-
-if __name__ == '__main__':
-    main()

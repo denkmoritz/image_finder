@@ -36,7 +36,16 @@ def run_query():
     conn = get_db_connection()
     try:
         df = pd.read_sql_query(QUERY, conn)
-        return df
+
+        uuid_df = df[['uuid', 'orig_id', 'source']].rename(columns={'uuid': 'uuid'})
+
+        relation_df = df[['relation_uuid', 'relation_orig_id', 'source']].rename(
+            columns={'relation_uuid': 'uuid', 'relation_orig_id': 'orig_id'})
+
+        combined_df = pd.concat([uuid_df, relation_df], ignore_index=True).drop_duplicates()
+
+        return combined_df.shape[0], combined_df
+    
     finally:
         conn.close()
 

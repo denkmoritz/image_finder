@@ -22,11 +22,17 @@
       <button type="submit" class="border border-gray-300 hover:bg-teal-700 font-semibold rounded shadow w-20 text-center">Plot</button>
     </form>
 
-    <div v-if="image" class="plot-section mx-32 mt-8 w-[400px] object-cover">
-        <img :src="image" alt="Plot"/>
-        <button @click="$router.push('/map')">Continue to Map</button>
+    <div v-if="image" class="mx-32 mt-8 flex items-center gap-8">
+      <img :src="image" alt="Plot" class="w-[400px] object-cover" />
+        
+        <div class="flex-shrink-0">
+          <button
+            @click="$router.push('/map')"
+            class="border border-gray-300 hover:bg-teal-700 font-semibold rounded shadow px-4 py-2">
+            Continue to Map
+          </button>
+       </div>
     </div>
-
   </div>
 </template>
 
