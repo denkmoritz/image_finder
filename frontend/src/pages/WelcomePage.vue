@@ -2,7 +2,7 @@
   <div>
     <h1 class="mx-32 mt-16 mb-8 text-2xl font-bold">Welcome to the Image Pair Finder!</h1>
 
-    <section class="mx-32 text-sm/8 text-justify">
+    <section class="mx-32 text-sm leading-8 text-justify">
       <p>
         This tool explores the hypothesis that humans perceive streetscapes differently depending on their location. For example, the way you perceive a road from the sidewalk is very different from how it appears in the middle of the street — yet many image datasets (like Google Street View) place the camera where people wouldn’t normally stand.
       </p>
@@ -14,7 +14,7 @@
       </p>
     </section>
 
-    <p class="mx-32 mt-8 mb-8 text-m/8 text-justify"> Enter the distance for the distance range (in meters):</p>
+    <p class="mx-32 mt-8 mb-8 text-m leading-8 text-justify"> Enter the distance for the distance range (in meters):</p>
 
     <form class="mx-32" @submit.prevent="generatePlot">
       <input v-model="inner" type="text" placeholder="Inner Circle" class="border border-gray-300 rounded w-32 mr-4 text-center"/>
@@ -22,7 +22,7 @@
       <button type="submit" class="border border-gray-300 hover:bg-teal-700 font-semibold rounded shadow w-20 text-center">Plot</button>
     </form>
 
-    <div v-if="image" class="mx-32 mt-8 flex items-center gap-8">
+    <div v-if="image" class="mx-32 mt-8 mb-16 flex items-center gap-8">
       <img :src="image" alt="Plot" class="w-[400px] object-cover" />
         
         <div class="flex-shrink-0">

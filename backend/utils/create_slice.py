@@ -1,9 +1,9 @@
 from utils.db import get_db_connection
-
+from sqlalchemy import text
 
 def create_materialized_view(inner_buffer, outer_buffer):
     assert isinstance(inner_buffer, (int, float)) and isinstance(outer_buffer, (int, float)), \
-    "Buffer distances must be numeric"
+        "Buffer distances must be numeric"
 
     query = f"""
     DROP MATERIALIZED VIEW IF EXISTS berlin_slice;
@@ -18,6 +18,8 @@ def create_materialized_view(inner_buffer, outer_buffer):
         source_x,
         heading,
         geometry_comp_32633,
+        comp_lat,
+        comp_lon,
         ST_Difference(
             ST_Difference(
                 ST_Buffer(geometry_comp_32633, {outer_buffer}),
@@ -46,15 +48,8 @@ def create_materialized_view(inner_buffer, outer_buffer):
     CREATE INDEX berlin_slice_gist ON berlin_slice USING gist (slice_geom);
     """
 
-    conn = get_db_connection()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(query)
-        conn.commit()
+    engine = get_db_connection()
+
+    with engine.begin() as connection:
+        connection.execute(text(query))
         print("Materialized view 'berlin_slice' created successfully.")
-    finally:
-        conn.close()
-
-
-if __name__ == '__main__':
-    create_materialized_view(inner_buffer=8, outer_buffer=12)

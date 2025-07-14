@@ -1,12 +1,7 @@
-import psycopg
+from sqlalchemy import create_engine
 from config import Config
 
 def get_db_connection():
-    connection = psycopg.connect(
-        host=Config.DB_HOST,
-        database=Config.DB_NAME,
-        user=Config.DB_USER,
-        password=Config.DB_PASSWORD,
-        port=Config.DB_PORT
-    )
-    return connection
+    url = f"postgresql+psycopg://{Config.DB_USER}:{Config.DB_PASSWORD}@{Config.DB_HOST}:{Config.DB_PORT}/{Config.DB_NAME}"
+    engine = create_engine(url)
+    return engine
