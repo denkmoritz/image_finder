@@ -4,3 +4,4 @@ venv
 __pycache__/
 *.DS_Store
 berlin_images/
+.env
