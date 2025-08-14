@@ -1,128 +1,205 @@
-import os
-import time
-import random
-import threading
-import requests
+# utils/download.py
+from __future__ import annotations
+import os, asyncio
 from pathlib import Path
+from typing import Dict, Iterable, List, Optional, Set, Literal
 
-import pandas as pd
-import mapillary.interface as mly
+import aiohttp
+from dotenv import load_dotenv
+from config import THUMB_DIR
 
+GRAPH_BASE = "https://graph.mapillary.com"
+BATCH_SIZE = 50
+API_TIMEOUT_S = 10.0
+DL_TIMEOUT_S = 20.0
+RETRIES = 3
+CONCURRENCY = 16
 
-# CONFIGURATION
-ACCESS_TOKEN = 'MLY|9589650211070406|360124f70ee4d3f32da7987da0ae45b0'
-NUM_THREADS = 100
-RETRY_WAIT = 3
+# ---------- env/token ----------
+load_dotenv()
+TOKEN = os.getenv("MAPILLARY_TOKEN")
+if not TOKEN:
+    raise RuntimeError("MAPILLARY_TOKEN not found. Create a .env with MAPILLARY_TOKEN=MLY|...")
 
+# ---------- helpers ----------
+Variant = Literal["thumb_256", "original"]
 
-def set_token():
-    mly.set_access_token(ACCESS_TOKEN)
+def _variant_subdir(variant: Variant) -> Path:
+    return THUMB_DIR / ("thumb_256" if variant == "thumb_256" else "original")
 
+def _local_path(uid: str, variant: Variant) -> Path:
+    # we normalize to .jpg for simplicity
+    return _variant_subdir(variant) / f"{uid}.jpg"
 
-def get_image_url(image_id):
-    """Get the download URL for a Mapillary image."""
-    try:
-        time.sleep(random.uniform(0.1, 1.0))
-        return mly.image_thumbnail(image_id, 2048)
-    except Exception as e:
-        print(f"[ERROR] Failed to get URL for image {image_id}: {e}")
-        return None
+def _safe_ext_from_content_type(ct: Optional[str]) -> str:
+    if not ct:
+        return ".jpg"
+    ct = ct.lower().split(";")[0].strip()
+    return {
+        "image/jpeg": ".jpg",
+        "image/jpg": ".jpg",
+        "image/png": ".png",
+        "image/webp": ".webp",
+    }.get(ct, ".jpg")
 
+async def _get_json(session: aiohttp.ClientSession, url: str, *, timeout: float) -> Optional[dict]:
+    attempt = 0
+    while attempt <= RETRIES:
+        attempt += 1
+        try:
+            async with session.get(url, timeout=timeout) as resp:
+                if resp.status == 200:
+                    return await resp.json()
+                if resp.status == 429:
+                    retry_after = float(resp.headers.get("Retry-After", "1"))
+                    await asyncio.sleep(retry_after)
+                elif 500 <= resp.status < 600:
+                    pass
+                else:
+                    return None
+        except (aiohttp.ClientError, asyncio.TimeoutError):
+            pass
+        await asyncio.sleep(min(2 ** (attempt - 1), 10))
+    return None
 
-def download_image_from_url(image_url, dst_path):
-    try:
-        response = requests.get(image_url, stream=True, timeout=10)
-        response.raise_for_status()
-        with open(dst_path, 'wb') as local_file:
-            for chunk in response.iter_content(chunk_size=8192):
-                local_file.write(chunk)
-    except requests.exceptions.RequestException as e:
-        print(f'[ERROR] Download failed for {image_url}: {e}')
+async def _download_file(session: aiohttp.ClientSession, url: str, dest: Path, *, timeout: float) -> bool:
+    attempt = 0
+    tmp = dest.with_suffix(dest.suffix + ".part")
+    while attempt <= RETRIES:
+        attempt += 1
+        try:
+            async with session.get(url, timeout=timeout) as resp:
+                if resp.status == 200:
+                    if dest.suffix == "":
+                        ext = _safe_ext_from_content_type(resp.headers.get("Content-Type"))
+                        dest = dest.with_suffix(ext)
+                        tmp = dest.with_suffix(dest.suffix + ".part")
+                    data = await resp.read()
+                    if not data:
+                        return False
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    tmp.write_bytes(data)
+                    tmp.replace(dest)
+                    return True
+                if resp.status == 429:
+                    retry_after = float(resp.headers.get("Retry-After", "1"))
+                    await asyncio.sleep(retry_after)
+                elif 500 <= resp.status < 600:
+                    pass
+                else:
+                    return False
+        except (aiohttp.ClientError, asyncio.TimeoutError):
+            pass
+        await asyncio.sleep(min(2 ** (attempt - 1), 10))
+    return False
 
+# ---------- Mapillary metadata ----------
+def _field_for_variant(variant: Variant) -> str:
+    # Mapillary fields list includes:
+    #  - thumb_256_url
+    #  - thumb_original_url  (use this as “original image” URL)
+    return "thumb_256_url" if variant == "thumb_256" else "thumb_original_url"
 
-def download_mapillary_image(image_id, dst_path):
-    image_url = get_image_url(image_id)
-    if image_url:
-        download_image_from_url(image_url, dst_path)
+async def _fetch_meta_batch(session: aiohttp.ClientSession, ids: List[str], *, variant: Variant) -> Dict[str, str]:
+    """
+    GET /images?ids=...&fields=id,<chosen_field>
+    Returns {id: url}
+    """
+    if not ids:
+        return {}
+    field = _field_for_variant(variant)
+    ids_csv = ",".join(ids)
+    url = (
+        f"{GRAPH_BASE}/images?access_token={TOKEN}"
+        f"&ids={ids_csv}&fields=id,{field}"
+    )
+    j = await _get_json(session, url, timeout=API_TIMEOUT_S)
+    if not j:
+        return {}
+    out: Dict[str, str] = {}
+    data = j.get("data")
+    if isinstance(data, list):
+        for item in data:
+            iid = item.get("id")
+            turl = item.get(field)
+            if iid and turl:
+                out[iid] = turl
+    else:
+        # single-object fallback
+        iid = j.get("id")
+        turl = j.get(field)
+        if iid and turl:
+            out[iid] = turl
+    return out
 
+# ---------- public API ----------
+async def download_all(ids: Iterable[str], *, variant: Variant = "thumb_256", concurrency: int = CONCURRENCY) -> Set[str]:
+    """
+    Download either 'thumb_256' or 'original' (thumb_original_url) for given IDs.
+    Returns IDs that now exist locally.
+    """
+    ids = list(dict.fromkeys(str(i) for i in ids))  # dedupe, keep order
+    out_dir = _variant_subdir(variant)
+    out_dir.mkdir(parents=True, exist_ok=True)
 
-def already_downloaded_ids(folder_path):
-    return {f.split('.')[0] for f in os.listdir(folder_path) if f.endswith('.jpeg')}
+    ok_ids: Set[str] = set()
+    to_fetch: List[str] = []
+    for uid in ids:
+        p = _local_path(uid, variant)
+        if p.exists() and p.stat().st_size > 0:
+            ok_ids.add(uid)
+        else:
+            to_fetch.append(uid)
 
+    if not to_fetch:
+        return ok_ids
 
-def download_batch(df, out_folder):
-    os.makedirs(out_folder, exist_ok=True)
-    threads = []
-    counter = 0
+    sem = asyncio.Semaphore(concurrency)
+    async with aiohttp.ClientSession() as session:
+        # 1) batch metadata
+        meta: Dict[str, str] = {}
+        for i in range(0, len(to_fetch), BATCH_SIZE):
+            chunk = to_fetch[i:i + BATCH_SIZE]
+            meta.update(await _fetch_meta_batch(session, chunk, variant=variant))
 
-    def download_pair(row):
-        id_1, uuid_1 = row['orig_id'], row['uuid']
-        id_2, uuid_2 = row['relation_orig_id'], row['relation_uuid']
+        # 2) download concurrently
+        async def dl_one(uid: str):
+            url = meta.get(uid)
+            if not url:
+                return
+            dest = _local_path(uid, variant)  # normalized .jpg
+            async with sem:
+                ok = await _download_file(session, url, dest, timeout=DL_TIMEOUT_S)
+            if ok:
+                ok_ids.add(uid)
 
-        dst_path_1 = os.path.join(out_folder, f"{uuid_1}.jpeg")
-        dst_path_2 = os.path.join(out_folder, f"{uuid_2}.jpeg")
+        await asyncio.gather(*(dl_one(uid) for uid in to_fetch))
 
-        if not os.path.isfile(dst_path_1):
-            download_mapillary_image(id_1, dst_path_1)
+    return ok_ids
 
-        if not os.path.isfile(dst_path_2):
-            download_mapillary_image(id_2, dst_path_2)
+def build_thumb_paths(ok_ids: Iterable[str], *, variant: Variant = "thumb_256") -> Dict[str, str]:
+    """
+    Build {uuid: local_path} for the chosen variant.
+    """
+    out: Dict[str, str] = {}
+    for uid in ok_ids:
+        p = _local_path(uid, variant)
+        if p.exists() and p.stat().st_size > 0:
+            out[uid] = str(p)
+    return out
 
-    for _, row in df.iterrows():
-        t = threading.Thread(target=download_pair, args=(row,))
-        t.daemon = True
-        threads.append(t)
-        counter += 1
+from typing import Iterable, Set, Dict
 
-        if counter % NUM_THREADS == 0:
-            print(f"Downloading batch of {NUM_THREADS} image pairs...")
-            for t in threads:
-                t.start()
-            for t in threads:
-                t.join()
-            threads = []
+# Always thumb_256
+async def download_thumbs_256(ids: Iterable[str]) -> Set[str]:
+    return await download_all(ids, variant="thumb_256")
 
-    if threads:
-        print(f"Downloading final batch of {len(threads)} image pairs...")
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
+def build_thumb256_paths(ok_ids: Iterable[str]) -> Dict[str, str]:
+    return build_thumb_paths(ok_ids, variant="thumb_256")
 
-def retry_missing(df_all, out_folder):
-    while True:
-        print("\nChecking for missing image pairs...")
-        missing = []
+# For the separate download API (originals)
+async def download_originals(ids: Iterable[str]) -> Set[str]:
+    return await download_all(ids, variant="original")
 
-        for _, row in df_all.iterrows():
-            uuid_1 = row['uuid']
-            uuid_2 = row['relation_uuid']
-            path_1 = os.path.join(out_folder, f"{uuid_1}.jpeg")
-            path_2 = os.path.join(out_folder, f"{uuid_2}.jpeg")
-
-            if not os.path.isfile(path_1) or not os.path.isfile(path_2):
-                missing.append(row)
-
-        if not missing:
-            print("All image pairs downloaded.")
-            break
-
-        print(f"Retrying {len(missing)} missing image pairs...")
-        retry_df = pd.DataFrame(missing)
-        download_batch(retry_df, out_folder)
-        time.sleep(RETRY_WAIT)
-
-def download_all(df):
-    set_token()
-    df_all = df[df['source'] == 'Mapillary'].reset_index(drop=True)
-
-    out_folder = './berlin_images/'
-    Path(out_folder).mkdir(parents=True, exist_ok=True)
-
-    print(f"Total Mapillary image pairs: {len(df_all)}")
-    print("Starting download...")
-
-    download_batch(df_all, out_folder)
-    retry_missing(df_all, out_folder)
-
-    print("Download process completed.")
+def build_original_paths(ok_ids: Iterable[str]) -> Dict[str, str]:
+    return build_thumb_paths(ok_ids, variant="original")

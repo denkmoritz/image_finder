@@ -4,3 +4,7 @@ sqlalchemy
 fastapi
 psycopg
 matplotlib
+imagehash
+Pillow
+aiohttp
+tqdm
