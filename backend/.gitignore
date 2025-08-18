@@ -5,3 +5,6 @@ __pycache__/
 *.DS_Store
 berlin_images/
 .env
+1024/
+thumb_256/
+thumbs/
