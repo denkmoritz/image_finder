@@ -1,3 +1,4 @@
+# modify/filter_berlin.py
 import pandas as pd
 from utils.db import get_db_connection
 
@@ -26,7 +27,6 @@ def run_query() -> pd.DataFrame:
     engine = get_db_connection()
     with engine.connect() as conn:
         df = pd.read_sql_query(QUERY, conn)
-    # Make sure IDs are not floats -> use nullable integer dtype
     for c in ("orig_id", "relation_orig_id"):
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors="coerce").astype("Int64")
@@ -104,33 +104,32 @@ def build_uuid_to_orig_map(df: pd.DataFrame) -> pd.DataFrame:
     mapping["orig_id"] = pd.to_numeric(mapping["orig_id"], errors="coerce").astype("Int64")
     return mapping
 
-def export_largest_group(node_groups: pd.DataFrame, groups_summary: pd.DataFrame, uuid_to_orig: pd.DataFrame, path: str) -> pd.DataFrame:
-    """Find largest group by n_nodes and export [uuid, orig_id] to CSV."""
-    if groups_summary.empty:
-        out = pd.DataFrame(columns=["uuid","orig_id"])
+def export_all_groups(node_groups: pd.DataFrame, uuid_to_orig: pd.DataFrame, path: str) -> pd.DataFrame:
+    """Export all groups: [uuid, orig_id, group_id] to CSV."""
+    if node_groups.empty:
+        out = pd.DataFrame(columns=["uuid","orig_id","group_id"])
         out.to_csv(path, index=False)
         return out
-    largest_gid = groups_summary.sort_values("n_nodes", ascending=False).iloc[0]["group_id"]
-    grp_nodes = node_groups.loc[node_groups["group_id"] == largest_gid, ["uuid"]].drop_duplicates()
-    out = grp_nodes.merge(uuid_to_orig, on="uuid", how="left")
-    # Optional: if you prefer strings (no <NA>), stringify without trailing '.0'
-    out["orig_id"] = out["orig_id"].astype("Int64")  # keep integers if present
+    out = node_groups.merge(uuid_to_orig, on="uuid", how="left")
+    out["orig_id"] = out["orig_id"].astype("Int64")
     out.to_csv(path, index=False)
     return out
 
-if __name__ == "__main__":
+def main() -> None:
+    """Run full pipeline for this step and write all_groups_with_orig.csv."""
     df = run_query()
     print("pair count:", len(df))
 
     node_groups, pairs_with_group, groups_summary = build_groups_df(df)
-    print("\nTop 5 largest groups:\n", groups_summary.sort_values("n_nodes", ascending=False).head(5))
+    print("\nGroup summary (top 10):\n", groups_summary.sort_values("n_nodes", ascending=False).head(10))
 
     uuid_to_orig = build_uuid_to_orig_map(df)
-    out = export_largest_group(node_groups, groups_summary, uuid_to_orig, path="largest_group_with_orig.csv")
+    out = export_all_groups(node_groups, uuid_to_orig, path="all_groups_with_orig.csv")
 
-    # Report which group was exported and how many rows
     if not groups_summary.empty:
-        largest_gid = groups_summary.sort_values("n_nodes", ascending=False).iloc[0]["group_id"]
-        print(f"\nExported largest group_id={largest_gid} with {len(out)} rows to largest_group_with_orig.csv")
+        print(f"\nExported {len(groups_summary)} groups with {len(out)} uuids to all_groups_with_orig.csv")
     else:
         print("\nNo groups found; exported empty CSV.")
+
+if __name__ == "__main__":
+    main()

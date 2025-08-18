@@ -8,3 +8,4 @@ imagehash
 Pillow
 aiohttp
 tqdm
+opencv-python
