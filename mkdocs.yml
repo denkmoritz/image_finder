@@ -1,0 +1,32 @@
+site_name: My Project Docs
+theme:
+  name: material
+
+plugins:
+  - search
+  - mkdocs-jupyter:
+      execute: false
+      include_source: true 
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - Usage: usage.md
+  - Dataset: dataset.md
+  - Frontend:
+      - Overview: frontend/overview.md
+      - Setup: frontend/setup.md
+  - Backend:
+      - Overview: backend/overview.md
+      - API: backend/api.md
+  - Notebooks:
+      - Initial Table Generation: notebooks/initial-table.ipynb      
+
+markdown_extensions:
+  - admonition
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences
+
+repo_url: https://github.com/denkmoritz/image_finder

@@ -22,7 +22,7 @@ IMAGES_DIR = "1024"                 # base folder with per-group subfolders, e.g
 RECURSIVE = True                    # scan subfolders
 HASH_METHOD = "phash"               # ahash|phash|dhash|whash-haar|whash-db4|colorhash|crop-resistant
 HASH_SIZE = 16                      # 8 or 16 typical
-SIMILAR_THRESHOLD = 5               # Hamming distance <= this = near-duplicate
+SIMILAR_THRESHOLD = 10              # Hamming distance <= this = near-duplicate
 UUID_MAP_CSV = "all_groups_with_orig.csv"  # must contain columns: uuid, orig_id, group_id
 OUTPUT_DELETE_UUIDS = "delete_uuids.txt"   # <-- only output we write
 # ----------------------------------------
