@@ -7,36 +7,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from utils.plot_slice import plot_slice
 from utils.query import run_query
 from utils.create_slice import create_materialized_view
-from utils.download import download_all
+from pathlib import Path
+from utils.download import download_pairs
+from config import IMAGES_DIR
 
 from pydantic import BaseModel
-from geopy.distance import geodesic
 
 class PlotRequest(BaseModel):
     inner_buffer: float
     outer_buffer: float
-
-
-def heading_diff(h1, h2):
-    return min(abs(h1 - h2), 360 - abs(h1 - h2))
-
-def is_far_enough(new_row, selected_rows, min_distance=3, min_heading_diff=5):
-    new_center = ((new_row['lat_1'] + new_row['lat_2']) / 2,
-                  (new_row['lon_1'] + new_row['lon_2']) / 2)
-    new_heading = (new_row['h_1'] + new_row['h_2']) / 2
-
-    for _, row in selected_rows.iterrows():
-        existing_center = ((row['lat_1'] + row['lat_2']) / 2,
-                           (row['lon_1'] + row['lon_2']) / 2)
-        existing_heading = (row['h_1'] + row['h_2']) / 2
-        
-        if heading_diff(new_heading, existing_heading) < min_heading_diff:
-            return False
-        
-        if geodesic(new_center, existing_center).meters < min_distance:
-            return False
-
-    return True
 
 app = FastAPI()
 
@@ -67,37 +46,52 @@ async def query(data: PlotRequest):
     return JSONResponse(content={"count": count})
 
 @app.post("/download/")
-async def download():
-    if not os.path.exists("latest_query.pkl"):
-        return JSONResponse(status_code=400, content={"error": "No query data found. Run /query/ first."})
+def download(limit_pairs: int = 10):
+    pkl = Path("latest_query.pkl")
+    if not pkl.exists():
+        raise HTTPException(status_code=400, detail="No latest_query.pkl found.")
 
-    df = pd.read_pickle("latest_query.pkl")
-    df = df[df['source'] == 'Mapillary'].drop_duplicates(subset=['relation_id']).reset_index(drop=True)
+    df = pd.read_pickle(pkl)
+    if df.empty:
+        raise HTTPException(status_code=400, detail="No rows found in latest_query.pkl")
 
-    selected = []
-    for _, row in df.iterrows():
-        if len(selected) >= 10:
-            break
-        if not selected or is_far_enough(row, pd.DataFrame(selected), min_distance=2, min_heading_diff=5):
-            selected.append(row)
+    required = ["uuid", "relation_uuid", "orig_id", "relation_orig_id"]
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        raise HTTPException(status_code=400, detail=f"Missing columns: {missing}")
 
-    if not selected:
-        return JSONResponse(status_code=400, content={"error": "No suitable pairs found"})
+    # only first N pairs
+    df = df.head(limit_pairs)
 
-    limited_df = pd.DataFrame(selected)
+    # build (fetch_id, dest_uuid) pairs for both sides
+    pairs = []
+    for _, r in df.iterrows():
+        if pd.notna(r["orig_id"]) and pd.notna(r["uuid"]):
+            pairs.append((str(r["orig_id"]), str(r["uuid"])))
+        if pd.notna(r["relation_orig_id"]) and pd.notna(r["relation_uuid"]):
+            pairs.append((str(r["relation_orig_id"]), str(r["relation_uuid"])))
 
-    download_all(limited_df)
+    stats = download_pairs(pairs)
 
-    locations = limited_df[['uuid', 'relation_uuid', 'lat_1', 'lon_1', 'lat_2', 'lon_2', 'relation_id']].to_dict(orient='records')
+    # include locations for the gallery
+    loc_cols = [c for c in ("uuid","relation_uuid","lat_1","lon_1","lat_2","lon_2","relation_id") if c in df.columns]
+    locations = df[loc_cols].to_dict(orient="records") if loc_cols else []
 
     return JSONResponse(content={
         "message": "Download completed",
+        **stats,
         "locations": locations
     })
 
-@app.get("/image/{image_id}")
-async def get_image(image_id: str):
-    image_path = os.path.join("berlin_images", f"{image_id}.jpeg")
-    if not os.path.exists(image_path):
-        raise HTTPException(status_code=404, detail="Image not found")
-    return FileResponse(image_path, media_type="image/jpeg")
+@app.get("/image/{uuid}")
+def get_image(uuid: str):
+    """
+    Serve the downloaded image by UUID, regardless of extension.
+    Frontend uses: http://localhost:8000/image/<uuid>
+    """
+    base = IMAGES_DIR / uuid
+    for ext, mime in ((".jpg","image/jpeg"), (".jpeg","image/jpeg"), (".png","image/png"), (".webp","image/webp")):
+        p = base.with_suffix(ext)
+        if p.exists() and p.stat().st_size > 0:
+            return FileResponse(str(p), media_type=mime)
+    raise HTTPException(status_code=404, detail=f"Image {uuid} not found")

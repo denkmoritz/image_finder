@@ -90,35 +90,48 @@ export default {
 
     async downloadPairs() {
       try {
-        const response = await fetch('http://localhost:8000/download/', { method: 'POST' })
-        if (!response.ok) throw new Error(`Download failed: ${response.status}`)
-        const data = await response.json()
-        alert(data.message || 'Download completed')
+        // call exactly what worked in curl:
+        const limit = 10; // first 10 pairs
+        const response = await fetch(`http://localhost:8000/download/?limit_pairs=${limit}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+        if (!response.ok) throw new Error(`Download failed: ${response.status}`);
+        const data = await response.json();
 
-        if (data.locations) {
-          this.locations = data.locations
-          // Map backend fields to gallery structure
+        // basic toast/info
+        const msg =
+          data.message ??
+          `Downloaded ${data.downloaded ?? 0}/${data.attempted ?? 0} images to ${data.images_dir ?? 'images/'}`;
+        alert(msg);
+
+        // if backend returns locations, render them; else show a hint
+        if (Array.isArray(data.locations) && data.locations.length) {
+          this.locations = data.locations;
           this.pairs = this.locations.map((p, i) => ({
-            id: p.id ?? i,
+            id: p.relation_id ?? p.id ?? i,
             left: {
               src: `http://localhost:8000/image/${p.uuid}`,
-              alt: p.left_alt || 'Left image',
+              alt: 'Left image',
               lat: Number(p.lat_1),
               lng: Number(p.lon_1)
             },
             right: {
               src: `http://localhost:8000/image/${p.relation_uuid}`,
-              alt: p.right_alt || 'Right image',
+              alt: 'Right image',
               lat: Number(p.lat_2),
               lng: Number(p.lon_2)
             },
-            caption: p.caption || '',
-            tags: p.tags || []
-          }))
+            caption: '',
+            tags: []
+          }));
+        } else {
+          console.warn('No locations in response. Did the backend include them?');
+          this.pairs = [];
         }
       } catch (err) {
-        console.error('Download failed:', err)
-        alert('Download failed. Check backend logs.')
+        console.error('Download failed:', err);
+        alert('Download failed. Check backend logs.');
       }
     },
 
