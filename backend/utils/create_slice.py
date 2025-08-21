@@ -1,9 +1,24 @@
 from utils.db import get_db_connection
 from sqlalchemy import text
 
-def create_materialized_view(inner_buffer, outer_buffer):
+def create_materialized_view(inner_buffer, outer_buffer, lat=None, lng=None, radius_m=None):
     assert isinstance(inner_buffer, (int, float)) and isinstance(outer_buffer, (int, float)), \
         "Buffer distances must be numeric"
+
+    area_filter = ""
+    if lat is not None and lng is not None and radius_m is not None:
+        area_filter = f"""
+            AND ST_Intersects(
+                geometry_comp_32633,
+                ST_Transform(
+                    ST_Buffer(
+                        ST_SetSRID(ST_MakePoint({lng}, {lat}), 4326)::geography,
+                        {radius_m}
+                    )::geometry,
+                    32633
+                )
+            )
+        """
 
     query = f"""
     DROP MATERIALIZED VIEW IF EXISTS berlin_slice;
@@ -42,7 +57,8 @@ def create_materialized_view(inner_buffer, outer_buffer):
             )
         ) AS slice_geom
     FROM berlin
-    WHERE mly_quality_score >= 0.95;
+    WHERE mly_quality_score >= 0.95
+    {area_filter};
 
     DROP INDEX IF EXISTS berlin_slice_gist;
     CREATE INDEX berlin_slice_gist ON berlin_slice USING gist (slice_geom);

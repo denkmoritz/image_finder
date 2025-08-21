@@ -38,11 +38,24 @@ async def plot(data: PlotRequest):
 
 @app.post("/query/")
 async def query(data: PlotRequest):
-    print("Start query")
-    create_materialized_view(data.inner_buffer, data.outer_buffer)
+    lat = None
+    lng = None
+    radius_m = None
+
+    if data.area:
+        lng, lat = data.area.center
+        radius_m = data.area.radius_m
+
+    create_materialized_view(
+        inner_buffer=data.inner_buffer or 0.0,
+        outer_buffer=data.outer_buffer or 0.0,
+        lat=lat,
+        lng=lng,
+        radius_m=radius_m,
+    )
     count, df = run_query()
     df.to_pickle("latest_query.pkl")
-    return JSONResponse(content={"count": count})
+    return JSONResponse(content={"count": int(count)})
 
 @app.post("/download/")
 def download(req: DownloadRequest):
@@ -139,13 +152,25 @@ def pairs(req: PairsRequest):
     end = min(offset + req.limit, total)
     page = df.iloc[offset:end].copy()
 
-    # required columns sanity
-    need = ["uuid","relation_uuid","lat_1","lon_1","lat_2","lon_2"]
+    # sanity check
+    need = ["uuid","relation_uuid","lat_1","lon_1","lat_2","lon_2","orig_id","relation_orig_id"]
     for c in need:
         if c not in page.columns:
             raise HTTPException(status_code=400, detail=f"Missing column '{c}' in latest_query.pkl")
 
-    # build items
+    # 1) prepare download pairs (orig_id -> uuid, relation_orig_id -> relation_uuid)
+    dl_pairs: list[tuple[str,str]] = []
+    for _, r in page.iterrows():
+        if pd.notna(r["orig_id"]) and pd.notna(r["uuid"]):
+            dl_pairs.append((str(r["orig_id"]), str(r["uuid"])))
+        if pd.notna(r["relation_orig_id"]) and pd.notna(r["relation_uuid"]):
+            dl_pairs.append((str(r["relation_orig_id"]), str(r["relation_uuid"])))
+    dl_pairs = list(dict.fromkeys(dl_pairs))  # dedupe
+
+    # 2) trigger download for this slice (lazy: only new ones are fetched)
+    stats = download_pairs(dl_pairs)
+
+    # 3) build items with correct URLs
     items = []
     pair_ids = []
     for _, r in page.iterrows():
@@ -155,16 +180,16 @@ def pairs(req: PairsRequest):
         items.append({
             "id": pid,
             "left": {
-                "src": str(f"http://localhost:8000/image/{u1}"),
+                "src": f"http://localhost:8000/image/{u1}",
                 "lat": float(r["lat_1"]), "lng": float(r["lon_1"]),
             },
             "right": {
-                "src": str(f"http://localhost:8000/image/{u2}"),
+                "src": f"http://localhost:8000/image/{u2}",
                 "lat": float(r["lat_2"]), "lng": float(r["lon_2"]),
             },
         })
 
-    # hydrate with existing interactions for this user
+    # hydrate with interactions
     imap = fetch_interactions_map(pair_ids, user_id=req.user_id)
     for it in items:
         meta = imap.get(it["id"], {})
@@ -177,7 +202,8 @@ def pairs(req: PairsRequest):
     return JSONResponse(content={
         "items": items,
         "total": total,
-        "nextCursor": next_cursor
+        "nextCursor": next_cursor,
+        "download_stats": stats,
     })
 
 @app.post("/interactions")
