@@ -17,6 +17,8 @@
 </template>
 
 <script>
+
+// eslint-disable-next-line
 import L from 'leaflet'
 
 export default {

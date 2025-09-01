@@ -1,5 +1,5 @@
 <template>
-  <div class="wrap" v-if="total && total > 0">
+  <div class="px-6 rounded-lg wrap" v-if="total && total > 0">
     <div class="label">
       <strong>{{ rated }}</strong> / {{ total }} rated
       <span v-if="pct >= 0"> ({{ Math.round(pct) }}%)</span>

@@ -1,28 +1,28 @@
 <template>
-  <div>
+  <div class="page-margins">
     <!-- Intro -->
-    <section class="mx-32 mt-16 mb-8 text-sm leading-8 text-justify">
+    <section class="mt-16 mb-8 text-m leading-8 text-justify">
       <p>
-        Choose a buffer range (e.g., 7–12 m). Optionally draw a circle on the map to limit the search area.
+        Choose a buffer range (e.g., 7 – 12 m). Optionally draw a circle on the map to limit the search area.
         If you don’t draw anything, the entire dataset will be used.
       </p>
     </section>
 
     <!-- Area picker -->
-    <div class="mx-32 mb-6">
+    <div class="mb-6">
       <AreaPickerMap v-model="area" />
     </div>
 
     <!-- Query form -->
-    <p class="mx-32 mt-2 mb-4 text-m leading-8 text-justify">
+    <p class="mt-2 mb-4 text-m leading-8 text-justify">
       Distance range (meters):
     </p>
 
-    <form class="mx-32 mb-6 flex items-center flex-wrap gap-4" @submit.prevent="runQuery">
-      <input v-model="inner" type="number" step="0.1" min="0" placeholder="Inner Circle" class="border border-gray-300 rounded w-40 text-center" />
-      <input v-model="outer" type="number" step="0.1" min="0" placeholder="Outer Circle" class="border border-gray-300 rounded w-40 text-center" />
+    <form class="mb-6 flex items-center flex-wrap gap-4" @submit.prevent="runQuery">
+      <input v-model="inner" type="text" placeholder="Inner Circle" class="border border-gray-300 rounded w-32 mr-4 text-center"/>
+      <input v-model="outer" type="text" placeholder="Outer Circle" class="border border-gray-300 rounded w-32 mr-4 text-center"/>
 
-      <button :disabled="loading" type="submit" class="border border-gray-300 hover:bg-teal-700 font-semibold rounded shadow w-32 text-center py-1.5">
+      <button :disabled="loading" type="submit" class="border border-gray-300 hover:bg-teal-700 font-semibold rounded shadow w-20 text-center">
         {{ loading ? 'Querying…' : 'Query' }}
       </button>
 
@@ -33,15 +33,15 @@
       </div>
     </form>
 
-    <div class="mx-32">
+    <div>
       <button
         v-if="count !== null && count > 0"
         @click="goRank"
-        class="border border-gray-300 hover:bg-teal-700 font-semibold rounded shadow px-4 py-2"
+        class="mb-8 border border-gray-300 hover:bg-teal-700 font-semibold rounded shadow px-4 py-2"
       >
         Start ranking
       </button>
-      <p v-else-if="count === 0" class="text-sm text-gray-500">No pairs for that query — adjust range or area.</p>
+      <p v-else-if="count === 0" class="mb-8 text-sm text-gray-500">No pairs for that query — adjust range or area.</p>
     </div>
   </div>
 </template>

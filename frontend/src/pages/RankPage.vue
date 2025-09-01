@@ -1,7 +1,7 @@
 <template>
-  <div>
+  <div class="page-margins">
     <!-- Header / query context -->
-    <section class="mx-32 mt-10 mb-4 text-sm leading-8 text-justify">
+    <section class="mt-10 mb-4 text-sm leading-8 text-justify">
       <p v-if="inner && outer">
         Ranking pairs for <strong>{{ inner }} – {{ outer }} m</strong>
         <span v-if="count !== null" class="opacity-70"> · {{ count }} pairs found</span>
@@ -12,42 +12,15 @@
       </p>
     </section>
 
-    <!-- Controls -->
-    <div class="mx-32 mb-2 flex items-center gap-4">
-      <label class="text-sm">Pair width:</label>
-      <select v-model.number="tileWidth" class="border rounded px-2 py-1 text-sm">
-        <option :value="640">640 px</option>
-        <option :value="760">760 px</option>
-        <option :value="880">880 px</option>
-        <option :value="1040">1040 px</option>
-      </select>
-
-      <label class="text-sm">Gap:</label>
-      <select v-model.number="tileGap" class="border rounded px-2 py-1 text-sm">
-        <option :value="16">16</option>
-        <option :value="24">24</option>
-        <option :value="32">32</option>
-        <option :value="48">48</option>
-      </select>
-
-      <label class="text-sm">Aspect:</label>
-      <select v-model="aspect" class="border rounded px-2 py-1 text-sm">
-        <option value="4 / 3">4:3</option>
-        <option value="3 / 2">3:2</option>
-        <option value="16 / 9">16:9</option>
-        <option value="1 / 1">1:1</option>
-      </select>
-    </div>
-
     <!-- STICKY progress -->
     <div class="sticky-progress">
-      <div class="mx-32">
+      <div>
         <ProgressBar ref="progressBar" :userId="userId" />
       </div>
     </div>
 
     <!-- Virtualized gallery -->
-    <div class="mx-32 mb-10">
+    <div class="mb-10">
       <DynamicScroller
         v-if="items.length"
         ref="scroller"
@@ -137,7 +110,8 @@ export default {
       cursor: null,
       loading: false,
 
-      tileWidth: 880,
+      // Fixed display settings
+      tileWidth: 1000,
       tileGap: 24,
       aspect: '4 / 3',
 
@@ -322,7 +296,6 @@ export default {
 .tile-wrap {
   width: var(--tile-w);
   margin: 0 auto;
-  padding: 0 var(--gap);
   box-sizing: border-box;
 }
 
