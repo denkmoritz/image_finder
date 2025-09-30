@@ -14,57 +14,14 @@
 export default {
   name: 'ProgressBar',
   props: {
-    userId: { type: String, required: true },
-    pollInterval: { type: Number, default: 5000 } // ms
-  },
-  data() {
-    return {
-      rated: 0,
-      total: 0,
-      timer: null
-    }
+    rated: { type: Number, required: true },
+    total: { type: Number, required: true }
   },
   computed: {
     pct() {
-      if (!this.total) return 0;
-      return Math.min(100, 100 * (this.rated / this.total));
+      if (!this.total) return 0
+      return Math.min(100, 100 * (this.rated / this.total))
     }
-  },
-  methods: {
-    async fetchProgress() {
-      try {
-        // Use full URL to API server, not relative URL
-        const res = await fetch(`http://localhost:8000/progress?user_id=${this.userId}`);
-        
-        if (!res.ok) {
-          throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-        }
-        
-        const contentType = res.headers.get('content-type');
-        if (!contentType || !contentType.includes('application/json')) {
-          const text = await res.text();
-          console.error('Non-JSON response:', text.substring(0, 200));
-          throw new Error('Server returned non-JSON response');
-        }
-        
-        const data = await res.json();
-        this.rated = data.rated || 0;
-        this.total = data.total || 0;
-        
-      } catch (err) {
-        console.error("Failed to fetch progress:", err);
-        // Set defaults on error to prevent UI issues
-        this.rated = 0;
-        this.total = 0;
-      }
-    }
-  },
-  mounted() {
-    this.fetchProgress();
-    this.timer = setInterval(this.fetchProgress, this.pollInterval);
-  },
-  beforeUnmount() {
-    if (this.timer) clearInterval(this.timer);
   }
 }
 </script>

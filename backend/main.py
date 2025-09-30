@@ -1,8 +1,11 @@
 import pandas as pd
 from pathlib import Path
+from datetime import datetime
+import re
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.responses import JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
 from utils.plot_slice import plot_slice
@@ -33,8 +36,11 @@ async def root():
 
 @app.post("/plot-slice/")
 async def plot(data: PlotRequest):
-    image = plot_slice(data.inner_buffer, data.outer_buffer)
-    return JSONResponse(content={"image": f"data:image/png;base64,{image}"})
+    if data.inner_buffer >= data.outer_buffer:
+        raise HTTPException(status_code=400, detail="Outer Ring must be greater than Inner Ring.")
+    else:
+        image = plot_slice(data.inner_buffer, data.outer_buffer)
+        return JSONResponse(content={"image": f"data:image/png;base64,{image}"})
 
 @app.post("/query/")
 async def query(data: PlotRequest):
@@ -46,6 +52,13 @@ async def query(data: PlotRequest):
         lng, lat = data.area.center
         radius_m = data.area.radius_m
 
+    #df_parameters = pd.DataFrame([{
+     #   "lng": lng,
+      #  "lat": lat,
+       # "radius_m": radius_m
+    #}])
+    #df_parameters.to_pickle("latest_parameters.pkl")
+
     create_materialized_view(
         inner_buffer=data.inner_buffer or 0.0,
         outer_buffer=data.outer_buffer or 0.0,
@@ -54,8 +67,38 @@ async def query(data: PlotRequest):
         radius_m=radius_m,
     )
     count, df = run_query()
+
     df.to_pickle("latest_query.pkl")
-    return JSONResponse(content={"count": int(count)})
+
+    save_dir = Path("queries")
+    save_dir.mkdir(exist_ok=True)
+
+    # Clean values for filename (replace None with "all")
+    def safe_num(val, decimals=5):
+        if val is None:
+            return "none"
+        return str(round(val, decimals)).replace(".", "_")
+
+    inner_str = safe_num(data.inner_buffer)
+    outer_str = safe_num(data.outer_buffer)
+    lat_str = safe_num(lat)
+    lng_str = safe_num(lng)
+    radius_str = safe_num(radius_m, 2)
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    base_name = f"count_{count}_inner_{inner_str}_outer_{outer_str}_lat_{lat_str}_lng_{lng_str}_r_{radius_str}_{timestamp}"
+
+
+    # Save as CSV
+    csv_path = save_dir / f"{base_name}.csv"
+    df.to_csv(csv_path, index=False)
+
+    print(f"Query saved to: {csv_path}")
+
+    return JSONResponse(content={
+        "count": int(count),
+        "csv_path": str(csv_path)
+    })
 
 @app.post("/download/")
 def download(req: DownloadRequest):
@@ -190,7 +233,7 @@ def pairs(req: PairsRequest):
         })
 
     # hydrate with interactions
-    imap = fetch_interactions_map(pair_ids, user_id=req.user_id)
+    imap = fetch_interactions_map(pair_ids)
     for it in items:
         meta = imap.get(it["id"], {})
         it["rating"]  = meta.get("rating")
@@ -219,7 +262,6 @@ def interactions(payload: List[InteractionItem]):
             seen = True
         upsert_interaction(
             pair_id=it.pairId,
-            user_id=it.userId or "default",
             rating=it.rating,
             seen=seen,
             starred=it.starred
@@ -228,43 +270,125 @@ def interactions(payload: List[InteractionItem]):
 
     return JSONResponse(content={"ok": True, "updated": updated})
 
-@app.get("/progress")
-def progress(user_id: str = "default"):
-    if not PKL_PATH.exists():
-        raise HTTPException(status_code=400, detail="No latest_query.pkl found. Run /query first.")
-    df = pd.read_pickle(PKL_PATH)
-    total = int(len(df))
+# @app.get("/progress")
+# def progress(user_id: str = "default"):
+#     if not PKL_PATH.exists():
+#         raise HTTPException(status_code=400, detail="No latest_query.pkl found. Run /query first.")
+#     df = pd.read_pickle(PKL_PATH)
+#     total = int(len(df))
 
-    # compute current set of pair_ids
-    if total == 0:
-        return JSONResponse(content={"total": 0, "reviewed": 0, "rated": 0, "seen": 0, "starred": 0})
+#     # compute current set of pair_ids
+#     if total == 0:
+#         return JSONResponse(content={"total": 0, "reviewed": 0, "rated": 0, "seen": 0, "starred": 0})
 
-    pair_ids = [make_pair_id(str(r["uuid"]), str(r["relation_uuid"])) for _, r in df.iterrows()]
+#     pair_ids = [make_pair_id(str(r["uuid"]), str(r["relation_uuid"])) for _, r in df.iterrows()]
 
-    con = sqlite3.connect(DB_PATH)
-    cur = con.cursor()
-    qmarks = ",".join("?" for _ in pair_ids)
-    cur.execute(f"""
-        SELECT
-          SUM(CASE WHEN rating IS NOT NULL OR seen=1 THEN 1 ELSE 0 END) AS reviewed,
-          SUM(CASE WHEN rating IS NOT NULL THEN 1 ELSE 0 END) AS rated,
-          SUM(CASE WHEN seen=1 THEN 1 ELSE 0 END) AS seen,
-          SUM(CASE WHEN starred=1 THEN 1 ELSE 0 END) AS starred
-        FROM interactions
-        WHERE user_id=? AND pair_id IN ({qmarks})
-    """, (user_id, *pair_ids))
-    row = cur.fetchone()
-    con.close()
+#     con = sqlite3.connect(DB_PATH)
+#     cur = con.cursor()
+#     qmarks = ",".join("?" for _ in pair_ids)
+#     cur.execute(f"""
+#         SELECT
+#           SUM(CASE WHEN rating IS NOT NULL OR seen=1 THEN 1 ELSE 0 END) AS reviewed,
+#           SUM(CASE WHEN rating IS NOT NULL THEN 1 ELSE 0 END) AS rated,
+#           SUM(CASE WHEN seen=1 THEN 1 ELSE 0 END) AS seen,
+#           SUM(CASE WHEN starred=1 THEN 1 ELSE 0 END) AS starred
+#         FROM interactions
+#         WHERE pair_id IN ({qmarks})
+#     """, (pair_ids))
+#     row = cur.fetchone()
+#     con.close()
 
-    reviewed = int(row[0] or 0)
-    rated = int(row[1] or 0)
-    seen = int(row[2] or 0)
-    starred = int(row[3] or 0)
+#     reviewed = int(row[0] or 0)
+#     rated = int(row[1] or 0)
+#     seen = int(row[2] or 0)
+#     starred = int(row[3] or 0)
 
-    return JSONResponse(content={
-        "total": total,
-        "reviewed": reviewed,
-        "rated": rated,
-        "seen": seen,
-        "starred": starred
-    })
+#     return JSONResponse(content={
+#         "total": total,
+#         "reviewed": reviewed,
+#         "rated": rated,
+#         "seen": seen,
+#         "starred": starred
+#     })
+
+@app.post("/export-likes/")
+async def export_likes(data: LikeExportRequest):
+    lat, lng, radius_m = None, None, None
+    if data.area:
+        lng, lat = data.area.get("center", (None, None))
+        radius_m = data.area.get("radius_m", None)
+
+    likes = data.likes
+    like_count = len(likes)
+    if like_count == 0:
+        return JSONResponse(content={"error": "No likes to export"}, status_code=400)
+
+    # Convert likes to DataFrame
+    df = pd.DataFrame(likes)
+
+    # Save directory
+    save_dir = Path("likes")
+    save_dir.mkdir(exist_ok=True)
+
+    # Safe filename (reuse your query logic)
+    def safe_num(val, decimals=5):
+        if val is None:
+            return "none"
+        return str(round(val, decimals)).replace(".", "_")
+
+    inner_str = safe_num(data.inner_buffer)
+    outer_str = safe_num(data.outer_buffer)
+    lat_str = safe_num(lat)
+    lng_str = safe_num(lng)
+    radius_str = safe_num(radius_m, 2)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    base_name = f"likes_{like_count}_inner_{inner_str}_outer_{outer_str}_lat_{lat_str}_lng_{lng_str}_r_{radius_str}_{timestamp}"
+    csv_path = save_dir / f"{base_name}.csv"
+
+    df.to_csv(csv_path, index=False)
+
+    print(f"Liked pairs saved to: {csv_path}")
+
+    return JSONResponse(content={"csv_path": str(csv_path)})
+
+app.mount("/likes", StaticFiles(directory="likes"), name="likes")
+
+@app.get("/list-likes/")
+async def list_likes():
+    save_dir = Path("likes")
+    if not save_dir.exists():
+        return JSONResponse(content={"likes": []})
+
+    files = list(save_dir.glob("*.csv"))
+    likes_list = []
+
+    for file in files:
+        # Flexible regex to capture numbers with underscores or 'none'
+        pattern = (
+            r"likes_(\d+)_inner_([0-9_]+|none)_outer_([0-9_]+|none)_"
+            r"lat_([0-9_]+|none)_lng_([0-9_\-]+|none)_r_([0-9_]+|none)_(\d{8}_\d{6})\.csv"
+        )
+        match = re.match(pattern, file.name)
+        if match:
+            like_count, inner, outer, lat, lng, radius, timestamp = match.groups()
+            # Convert underscores back to decimal points where possible
+            def decode_num(val):
+                if val == "none":
+                    return None
+                return val.replace("_", ".")
+            
+            likes_list.append({
+                "file_name": file.name,
+                "like_count": int(like_count),
+                "inner_buffer": decode_num(inner),
+                "outer_buffer": decode_num(outer),
+                "lat": decode_num(lat),
+                "lng": decode_num(lng),
+                "radius_m": decode_num(radius),
+                "timestamp": timestamp
+            })
+
+    # Sort by newest first
+    likes_list.sort(key=lambda x: x["timestamp"], reverse=True)
+    return JSONResponse(content={"likes": likes_list})

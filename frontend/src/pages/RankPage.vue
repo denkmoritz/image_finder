@@ -12,10 +12,18 @@
       </p>
     </section>
 
-    <!-- STICKY progress -->
+    <!-- STICKY progress + end session button -->
     <div class="sticky-progress">
-      <div>
-        <ProgressBar ref="progressBar" :userId="userId" />
+      <div class="progress-container">
+        <ProgressBar :rated="ratedCount" :total="totalCount" />
+
+        <button 
+          @click="confirmEndSession" 
+          :disabled="exporting"
+          class="export-btn end-btn"
+        >
+          {{ exporting ? 'Exporting...' : 'End Session' }}
+        </button>
       </div>
     </div>
 
@@ -34,11 +42,11 @@
         <template #default="{ item }">
           <DynamicScrollerItem :item="item" :active="true">
             <div class="row">
-              <div class="tile-wrap" :class="{ 'vanishing': item.isVanishing }">
+              <div class="tile-wrap">
                 <PairTile
                   :pair="item"
                   :aspect="aspect"
-                  @rate="onRate"
+                  @like="onLike"
                   @map="onMapRequest"
                   v-observe="visible => onVisible(item, visible)"
                 />
@@ -116,11 +124,11 @@ export default {
       aspect: '4 / 3',
 
       selectedPair: null,
-      _queue: [],
-      _flushTimer: null,
-
-      // user id for progress API - changed to default
-      userId: 'default'
+      
+      // export state
+      ratedCount: 0,
+      totalCount: 0,
+      exporting: false
     }
   },
 
@@ -164,15 +172,19 @@ export default {
           id: it.id,
           left: it.left,
           right: it.right,
-          rating: it.rating ?? null,
-          seen: !!it.seen,
-          starred: !!it.starred,
-          isVanishing: false // Add animation state
+          liked: it.liked ?? false,
+          // IMPORTANT: ignore server-provided 'seen' — treat seen only locally
+          seen: false
         }))
         this.items.push(...mapped)
+
+        // keep the server total if available
         this.total = data.total ?? this.total
         this.cursor = data.nextCursor ?? null
         this.$nextTick(() => this.$refs.scroller?.forceUpdate?.())
+
+        // initialize / refresh frontend-only progress after loading new items
+        this.updateProgress()
       } finally {
         this.loading = false
       }
@@ -185,51 +197,87 @@ export default {
       const idx = this.items.findIndex(p => p.id === item.id)
       if (idx >= 0 && !this.items[idx].seen) {
         this.items[idx] = { ...this.items[idx], seen: true }
-        this.queueInteraction({ pairId: item.id, seen: true })
+        this.updateProgress()
       }
     },
 
-    async onRate({ id, rating }) {
+    onLike({ id, liked }) {
       const idx = this.items.findIndex(p => p.id === id)
       if (idx < 0) return
 
-      // Add vanishing class to trigger animation
-      const item = this.items[idx]
-      item.isVanishing = true
-      
-      // Wait for animation to complete before removing
-      setTimeout(() => {
-        const currentIdx = this.items.findIndex(p => p.id === id)
-        if (currentIdx >= 0) {
-          this.items.splice(currentIdx, 1)
-        }
-      }, 500) // Match animation duration
+      this.items[idx] = { ...this.items[idx], liked, seen: true }
+      this.updateProgress()
+    },
+    updateProgress() {
+      // Prefer explicit route-provided count if present (query param),
+      // otherwise prefer server total, otherwise fallback to loaded items length
+      this.totalCount = this.count ?? this.total ?? this.items.length
 
-      this.queueInteraction([{ pairId: id, rating, seen: true }])
-
-      // immediately refresh progress bar
-      this.$refs.progressBar?.fetchProgress()
+      // Only count pairs that were liked *or* locally seen in this session
+      this.ratedCount = this.items.filter(p => p.liked || p.seen).length
     },
 
-    queueInteraction(payload) {
-      const arr = Array.isArray(payload) ? payload : [payload]
-      this._queue.push(...arr)
-      clearTimeout(this._flushTimer)
-      this._flushTimer = setTimeout(this.flushInteractions, 400)
+
+    async confirmEndSession() {
+      const confirmed = confirm(
+        `Are you sure you want to end this session?\n\n` +
+        `All liked pairs from the current query will be exported to your default download path. After this, the ranking session will close.`
+      )
+      if (!confirmed) return
+
+      await this.exportSession()
+      this.$router.push({ name: 'like' })
     },
 
-    async flushInteractions() {
-      if (!this._queue.length) return
-      const batch = this._queue.splice(0, this._queue.length)
+    async exportSession() {
+      if (this.exporting) return
+      this.exporting = true
+
       try {
-        await fetch('http://localhost:8000/interactions', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(batch)
+        // Collect all liked pairs
+        const likes = this.items.filter(p => p.liked)
+        if (!likes.length) {
+          alert("No liked pairs to export!")
+          this.exporting = false
+          return
+        }
+
+        // Build payload using PlotRequest fields + likes
+        const payload = {
+          inner_buffer: this.$route.query.inner ?? null,
+          outer_buffer: this.$route.query.outer ?? null,
+          area: this.$route.query.area ? JSON.parse(this.$route.query.area) : null,
+          likes
+        }
+
+        // Call backend API
+        const res = await fetch("http://localhost:8000/export-likes/", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
         })
+
+        if (!res.ok) {
+          const error = await res.json()
+          alert(`Export failed: ${error.detail || 'Unknown error'}`)
+          return
+        }
+
+        const data = await res.json()
+        alert(`Liked pairs successfully exported to server:\n${data.csv_path}`)
+
       } catch (e) {
-        this._queue.unshift(...batch)
+        console.error("Export error:", e)
+        alert("Failed to export liked pairs.")
+      } finally {
+        this.exporting = false
       }
+    },
+
+    convertToCSV(pairs) {
+      const headers = ['pair_id', 'left_image', 'right_image']
+      const rows = pairs.map(p => [p.id, p.left?.src, p.right?.src])
+      return [headers.join(','), ...rows.map(r => r.join(','))].join('\n')
     },
 
     onMapRequest(pair) {
@@ -237,7 +285,7 @@ export default {
       const idx = this.items.findIndex(p => p.id === pair.id)
       if (idx >= 0 && !this.items[idx].seen) {
         this.items[idx] = { ...this.items[idx], seen: true }
-        this.queueInteraction({ pairId: pair.id, seen: true })
+        this.updateProgress()
       }
       const dlg = this.$refs.mapDialog
       if (dlg && !dlg.open) dlg.showModal()
@@ -325,4 +373,28 @@ export default {
 }
 .map-close:hover { background: rgba(255,255,255,0.18); }
 .map-close:focus-visible { outline: 2px solid rgba(255,255,255,0.45); outline-offset: 2px; }
+
+.progress-container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 0 12px;
+}
+
+.export-btn.end-btn {
+  background: #276b8e;
+  color: white;
+  padding: 8px 16px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: background 0.2s ease;
+}
+
+.export-btn.end-btn:hover {
+  background: #1d77a4;
+}
+
 </style>

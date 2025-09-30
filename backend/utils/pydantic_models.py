@@ -1,4 +1,4 @@
-from typing import Optional, List
+from typing import Optional, List, Dict
 from pydantic import BaseModel, Field, model_validator
 
 class PairsRequest(BaseModel):
@@ -43,3 +43,6 @@ class DownloadRequest(BaseModel):
     cursor: Optional[str] = None
     all: bool = False
     include_locations: bool = False
+
+class LikeExportRequest(PlotRequest):
+    likes: List[Dict]

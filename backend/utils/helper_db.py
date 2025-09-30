@@ -11,12 +11,11 @@ def init_db():
     cur.execute("""
     CREATE TABLE IF NOT EXISTS interactions (
         pair_id TEXT NOT NULL,
-        user_id TEXT NOT NULL DEFAULT 'default',
         rating INTEGER,
         seen INTEGER NOT NULL DEFAULT 0,
         starred INTEGER NOT NULL DEFAULT 0,
         updated_at TEXT NOT NULL,
-        PRIMARY KEY (pair_id, user_id)
+        PRIMARY KEY (pair_id)
     )
     """)
     con.commit()
@@ -24,12 +23,12 @@ def init_db():
 
 init_db()
 
-def upsert_interaction(pair_id: str, user_id: str, rating: Optional[int], 
+def upsert_interaction(pair_id: str, rating: Optional[int], 
                        seen: Optional[bool], starred: Optional[bool]):
     con = sqlite3.connect(DB_PATH)
     con.row_factory = sqlite3.Row
     cur = con.cursor()
-    cur.execute("SELECT * FROM interactions WHERE pair_id=? AND user_id=?", (pair_id, user_id))
+    cur.execute("SELECT * FROM interactions WHERE pair_id=?", (pair_id))
     row = cur.fetchone()
     # merge with existing
     if row:
@@ -42,18 +41,18 @@ def upsert_interaction(pair_id: str, user_id: str, rating: Optional[int],
         starred_val = int(starred) if starred is not None else 0
 
     cur.execute("""
-        INSERT INTO interactions (pair_id, user_id, rating, seen, starred, updated_at)
-        VALUES (?,?,?,?,?,?)
-        ON CONFLICT(pair_id, user_id) DO UPDATE SET
+        INSERT INTO interactions (pair_id, rating, seen, starred, updated_at)
+        VALUES (?,?,?,?,?)
+        ON CONFLICT(pair_id) DO UPDATE SET
             rating=excluded.rating,
             seen=excluded.seen,
             starred=excluded.starred,
             updated_at=excluded.updated_at
-    """, (pair_id, user_id, rating_val, seen_val, starred_val, datetime.utcnow().isoformat()))
+    """, (pair_id, rating_val, seen_val, starred_val, datetime.utcnow().isoformat()))
     con.commit()
     con.close()
 
-def fetch_interactions_map(pair_ids: List[str], user_id: str = "default"):
+def fetch_interactions_map(pair_ids: List[str]):
     """Return {pair_id: {rating, seen, starred}} for given ids."""
     if not pair_ids:
         return {}
@@ -64,8 +63,8 @@ def fetch_interactions_map(pair_ids: List[str], user_id: str = "default"):
     cur.execute(f"""
         SELECT pair_id, rating, seen, starred
         FROM interactions
-        WHERE user_id=? AND pair_id IN ({qmarks})
-    """, (user_id, *pair_ids))
+        WHERE pair_id IN ({qmarks})
+    """, (pair_ids))
     out = {r["pair_id"]: {"rating": r["rating"], "seen": bool(r["seen"]), "starred": bool(r["starred"])} for r in cur.fetchall()}
     con.close()
     return out
