@@ -1,0 +1,3 @@
+id,left,right,liked,seen
+64f5d83c-2aa3-4f68-91d2-7908092a3fb2__f5f8e742-8b38-444b-85db-52bf9447e5c9,"{'src': 'http://localhost:8000/image/64f5d83c-2aa3-4f68-91d2-7908092a3fb2', 'lat': 52.518532601575, 'lng': 13.388500294161}","{'src': 'http://localhost:8000/image/f5f8e742-8b38-444b-85db-52bf9447e5c9', 'lat': 52.518514696851, 'lng': 13.388668973891}",True,True
+370af869-8172-40a7-ab2b-cf1fcdc0dd7f__7fed00cd-bd6a-40c9-adba-11b79af94573,"{'src': 'http://localhost:8000/image/370af869-8172-40a7-ab2b-cf1fcdc0dd7f', 'lat': 52.511127296006, 'lng': 13.401725925958}","{'src': 'http://localhost:8000/image/7fed00cd-bd6a-40c9-adba-11b79af94573', 'lat': 52.511254328378, 'lng': 13.401726732409}",True,True
