@@ -26,6 +26,7 @@ class Circle(BaseModel):
         return self
 
 class PlotRequest(BaseModel):
+    city:str
     inner_buffer: Optional[float] = Field(None, ge=0)
     outer_buffer: Optional[float] = Field(None, ge=0)
     area: Optional[Circle] = None

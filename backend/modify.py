@@ -29,7 +29,7 @@ def main():
     download_thumb.main()
 
     # Ensure symlink if compare expects thumb_1024/ but downloads live in 1024/
-    ensure_symlink(Path("1024"), Path("thumb_1024"))
+    ensure_symlink(Path("singapore"), Path("thumb_1024"))
 
     # Step 3
     header("Step 3/3 — compare_thumbs")

@@ -38,7 +38,7 @@ from sqlalchemy import text, bindparam
 from utils.db import get_db_connection
 
 # ------------------- Config -------------------
-TABLE_NAME = "berlin"
+TABLE_NAME = "singapore"
 UUID_COL = "uuid"
 ORIG_ID_COL = "orig_id_x"   # Mapillary image id column
 

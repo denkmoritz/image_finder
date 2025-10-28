@@ -15,10 +15,10 @@ SELECT
     a.comp_lat          AS lat_1,
     b.comp_lat          AS lat_2,
     a.source_x          AS source
-FROM berlin a
-JOIN berlin b
+FROM singapore a
+JOIN singapore b
   ON a.uuid < b.uuid
- AND (a.geometry_comp_32633 <-> b.geometry_comp_32633) <= 0.5
+ AND (a.geometry_comp_32648 <-> b.geometry_comp_32648) <= 0.5
  AND LEAST(ABS(a.heading - b.heading), 360 - ABS(a.heading - b.heading)) <= 20
 """
 

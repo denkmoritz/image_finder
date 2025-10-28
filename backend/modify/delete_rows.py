@@ -14,8 +14,8 @@ from sqlalchemy import text, bindparam
 from utils.db import get_db_connection
 
 # -------- Config (no CLI args) --------
-DELETE_LIST_PATH = "delete_uuids.txt"   # one UUID per line
-TABLE_NAME = "berlin"                   # target table
+DELETE_LIST_PATH = "delete_uuids_by_quality.txt"   # one UUID per line
+TABLE_NAME = "singapore"                   # target table
 PK_COLUMN = "uuid"                      # primary key / column to match
 CHUNK_SIZE = 1000                       # tune if needed
 DO_COUNT_BEFORE = True                  # set False to skip pre-count

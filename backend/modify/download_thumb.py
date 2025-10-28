@@ -15,7 +15,7 @@ import os
 
 # --- Config (no CLI args) ---
 CSV_PATH = "all_groups_with_orig.csv"       # columns: uuid, orig_id, group_id
-OUTPUT_DIR = pathlib.Path("1024")           # base folder for images
+OUTPUT_DIR = pathlib.Path("singapore")           # base folder for images
 MANIFEST_PATH = "download_manifest.csv"     # log of attempts/results
 API_BASE = "https://graph.mapillary.com"
 FIELDS = "thumb_1024_url"

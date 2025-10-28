@@ -18,7 +18,7 @@ except Exception:
     TQDM = False
 
 # --------- Config (no CLI args) ---------
-IMAGES_DIR = "1024"                 # base folder with per-group subfolders, e.g., 1024/group_00012/*.jpg
+IMAGES_DIR = "singapore"                 # base folder with per-group subfolders, e.g., <city>/group_00012/*.jpg
 RECURSIVE = True                    # scan subfolders
 HASH_METHOD = "phash"               # ahash|phash|dhash|whash-haar|whash-db4|colorhash|crop-resistant
 HASH_SIZE = 16                      # 8 or 16 typical
