@@ -13,7 +13,7 @@ This table was exported into a PostgreSQL database in order to enable flexible q
 
 1. **Image quality filtering**  
    Each image in the dataset includes a quality score between \(0\) and \(1\).  
-   Only images with a score \(\re 0.95\) were retained. This filtering step removes very few entries, since most images are already of high quality.
+   Only images with a score \(\ge 0.95\) were retained. This filtering step removes very few entries, since most images are already of high quality.
 
 2. **Grouping by location and heading**  
    To avoid using the same image multiple times, images were grouped based on spatial proximity and viewing direction.  
